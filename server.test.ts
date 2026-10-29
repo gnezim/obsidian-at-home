@@ -317,8 +317,6 @@ describe("wikilinks server", () => {
     vi.useFakeTimers();
     let readSignal: AbortSignal | undefined;
     const { bb, harness } = createFakePluginHost({ pluginId: "wikilinks", sdk: {
-      projects: { list: async () => [] },
-      environments: { list: async () => [] },
       files: { read: async ({ signal }) => {
         readSignal = signal;
         return await new Promise<never>(() => {});

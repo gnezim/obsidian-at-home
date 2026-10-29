@@ -1517,20 +1517,27 @@ async function resolveHostContext(
     throw new Error("Host file paths must be absolute");
   }
   const absolutePath = normalizeHostPath(filePath);
-  const roots = await memoizeLookup(hostWorkspaceRootsCache, hostId, async () => {
-    const [projects, environments] = await Promise.all([
-      bb.sdk.projects.list().catch(() => []),
-      bb.sdk.environments.list({ hostId }).catch(() => []),
+  let discoveryComplete = true;
+  const lookup = memoizeLookup(hostWorkspaceRootsCache, hostId, async () => {
+    const [projectsResult, environmentsResult] = await Promise.allSettled([
+      Promise.resolve().then(() => bb.sdk.projects.list()),
+      Promise.resolve().then(() => bb.sdk.environments.list({ hostId })),
     ]);
+    discoveryComplete = projectsResult.status === "fulfilled" && environmentsResult.status === "fulfilled";
     return [
-      ...projects.flatMap((project) => project.sources
+      ...(projectsResult.status === "fulfilled" ? projectsResult.value : []).flatMap((project) => project.sources
         .filter((source) => source.hostId === hostId)
         .map((source) => source.path)),
-      ...environments.filter((environment) => environment.hostId === hostId)
+      ...(environmentsResult.status === "fulfilled" ? environmentsResult.value : [])
+        .filter((environment) => environment.hostId === hostId)
         .map((environment) => environment.path),
     ].filter((root): root is string => typeof root === "string" && isAbsoluteHostPath(root))
       .map(normalizeHostPath);
   });
+  const roots = await lookup.catch(() => []);
+  if (!discoveryComplete && hostWorkspaceRootsCache.get(hostId)?.promise === lookup) {
+    hostWorkspaceRootsCache.delete(hostId);
+  }
   const rootPath = roots
     .filter((root) => relativePathWithinRoot(root, absolutePath) !== null)
     .sort((a, b) => b.length - a.length)[0] ?? hostPathApi(absolutePath).dirname(absolutePath);
